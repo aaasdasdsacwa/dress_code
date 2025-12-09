@@ -36,8 +36,9 @@ public class TryOnViewModel extends AndroidViewModel {
     }
 
     /**
-     * 调用 AI 换装（在 AiApi 内部使用 OkHttp 异步）
-     * apiKey 传入 BuildConfig.AI_KEY（或 null）
+     * 调用 AI 换装
+     *
+     * 【重要修改】：这里改为调用 AiApi.tryOnAsync 以适配 tryon-api.com 的异步轮询机制
      */
     public void tryOn(File userImage, File outfitImage, String apiKey) {
         if (userImage == null || outfitImage == null) {
@@ -48,7 +49,8 @@ public class TryOnViewModel extends AndroidViewModel {
         loading.postValue(true);
         error.postValue(null);
 
-        AiApi.tryOnReturnUrl(getApplication(), userImage, outfitImage, apiKey, new AiApi.UrlCallback() {
+        // 使用 tryOnAsync 而不是 tryOnReturnUrl
+        AiApi.tryOnAsync(getApplication(), userImage, outfitImage, apiKey, new AiApi.UrlCallback() {
             @Override
             public void onSuccess(String url) {
                 loading.postValue(false);

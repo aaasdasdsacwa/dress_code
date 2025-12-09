@@ -14,6 +14,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.Call;
 import okhttp3.MediaType;
@@ -26,28 +27,38 @@ import okhttp3.Response;
 /**
  * AiApi - 通用的 tryOn 上传工具（增强版）
  *
- * 保持并兼容原有功能（tryOnReturnUrl），并新增：
- *  - tryOnWithOutfitUrl(...)：当 outfit 为远程 URL 时使用（上传用户图 + outfit_url 字段）
- *  - 更好的错误/HTML 识别与 log 输出，便于排查返回非 JSON 的情况
- *
- * 注意：默认使用 AI_BASE 常量作为 endpoint（原来你用的是 https://www.dmxapi.cn/v1），
- *       如需修改请替换 AI_BASE 或改写调用。
+ * 包含：
+ * 1. 同步等待模式 (旧功能)：tryOnReturnUrl, tryOnWithOutfitUrl
+ * 2. 异步轮询模式 (新功能)：tryOnAsync (专门适配 tryon-api.com 的 job 机制)
  */
 public class AiApi {
     private static final String TAG = "AiApi";
-    private static final OkHttpClient client = new OkHttpClient();
+
+    // 基础 Client 配置
+    private static final OkHttpClient client = new OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .build();
 
     // 默认 endpoint（保留你原来的地址）
     private static final String AI_BASE = "https://tryon-api.com";
+
+    // 新增：针对 tryon-api.com 异步任务的专用 API 地址
+    private static final String ASYNC_API_HOST = "https://tryon-api.com";
+    private static final String ENDPOINT_SUBMIT = ASYNC_API_HOST + "/api/v1/tryon";
+    private static final String ENDPOINT_STATUS = ASYNC_API_HOST + "/api/v1/tryon/status/";
 
     public interface UrlCallback {
         void onSuccess(String url); // 返回远程 url 或 本地 file:// uri
         void onError(Exception e);
     }
 
-    // -------------------------
-    // 原有方法：上传 user + outfit 两张文件（保持原样，但加了日志与 HTML 判别）
-    // -------------------------
+    // ============================================================================================
+    //  SECTION 1: 原有功能 (保持不变)
+    //  适用于支持直接返回结果的 API，或旧版接口
+    // ============================================================================================
+
     public static void tryOnReturnUrl(Context ctx, File userImageFile, File outfitImageFile, String apiKey, UrlCallback cb) {
         Handler main = new Handler(Looper.getMainLooper());
 
@@ -89,100 +100,11 @@ public class AiApi {
 
             @Override
             public void onResponse(Call call, Response response) {
-                try {
-                    if (!response.isSuccessful()) {
-                        final IOException ex = new IOException("HTTP " + response.code() + " " + response.message());
-                        Log.w(TAG, "tryOnReturnUrl response not successful: " + response.code());
-                        main.post(() -> cb.onError(ex));
-                        return;
-                    }
-
-                    String ct = "";
-                    if (response.body() != null && response.body().contentType() != null) {
-                        ct = response.body().contentType().toString().toLowerCase();
-                    }
-                    Log.d(TAG, "tryOnReturnUrl content-type: " + ct);
-
-                    // JSON 情形
-                    if (ct.contains("application/json") || ct.contains("text/json") || ct.contains("application/ld+json") || ct.contains("text/plain")) {
-                        String bodyStr = response.body() != null ? response.body().string() : "";
-                        // 如果 body 看起来像 HTML，优先返回可读片段帮助诊断
-                        if (looksLikeHtml(bodyStr)) {
-                            final Exception ex = new Exception("Unexpected HTML response from server: " + snippet(bodyStr, 800));
-                            Log.w(TAG, "tryOnReturnUrl got HTML in JSON branch");
-                            main.post(() -> cb.onError(ex));
-                            return;
-                        }
-
-                        String found = parseUrlFromJson(bodyStr);
-                        if (found != null) {
-                            final String urlFinal = found;
-                            Log.d(TAG, "tryOnReturnUrl parsed url: " + urlFinal);
-                            main.post(() -> cb.onSuccess(urlFinal));
-                            return;
-                        } else {
-                            final Exception ex = new Exception("No url field found in JSON response: " + snippet(bodyStr, 800));
-                            Log.w(TAG, "tryOnReturnUrl JSON did not contain url");
-                            main.post(() -> cb.onError(ex));
-                            return;
-                        }
-                    }
-
-                    // 图片二进制
-                    if (ct.startsWith("image/") || ct.equals("") || ct.contains("octet-stream")) {
-                        File out = new File(ctx.getCacheDir(), "tryon_result_" + System.currentTimeMillis() + ".png");
-                        try (InputStream in = response.body().byteStream();
-                             FileOutputStream fos = new FileOutputStream(out)) {
-                            byte[] buf = new byte[8192];
-                            int len;
-                            while ((len = in.read(buf)) != -1) {
-                                fos.write(buf, 0, len);
-                            }
-                            fos.flush();
-                        } catch (Exception e) {
-                            final Exception ex = new Exception("Failed to save binary response: " + e.getMessage(), e);
-                            Log.e(TAG, "tryOnReturnUrl save binary failed", e);
-                            main.post(() -> cb.onError(ex));
-                            return;
-                        }
-                        final String localUri = Uri.fromFile(out).toString();
-                        Log.d(TAG, "tryOnReturnUrl saved binary to: " + localUri);
-                        main.post(() -> cb.onSuccess(localUri));
-                        return;
-                    }
-
-                    // 兜底：按字符串解析（有些服务 Content-Type 不准确）
-                    String bodyStr = response.body() != null ? response.body().string() : "";
-                    if (looksLikeHtml(bodyStr)) {
-                        final Exception ex = new Exception("Unexpected response format (HTML). Body snippet: " + snippet(bodyStr, 800));
-                        Log.w(TAG, "tryOnReturnUrl got HTML in fallback branch");
-                        main.post(() -> cb.onError(ex));
-                        return;
-                    }
-                    String found = parseUrlFromJson(bodyStr);
-                    if (found != null) {
-                        final String urlFinal = found;
-                        Log.d(TAG, "tryOnReturnUrl parsed url in fallback: " + urlFinal);
-                        main.post(() -> cb.onSuccess(urlFinal));
-                    } else {
-                        final Exception ex = new Exception("Unexpected response format, body: " + snippet(bodyStr, 800));
-                        Log.w(TAG, "tryOnReturnUrl unexpected response");
-                        main.post(() -> cb.onError(ex));
-                    }
-
-                } catch (Exception ex) {
-                    Log.e(TAG, "tryOnReturnUrl processing error", ex);
-                    main.post(() -> cb.onError(ex));
-                } finally {
-                    if (response.body() != null) response.close();
-                }
+                handleSyncResponse(ctx, response, main, cb, "tryOnReturnUrl");
             }
         });
     }
 
-    // -------------------------
-    // 新增方法：上传 userImage + outfitImageUrl（远程 URL），后端负责抓取 outfit 图
-    // -------------------------
     public static void tryOnWithOutfitUrl(Context ctx, File userImageFile, String outfitImageUrl, String apiKey, UrlCallback cb) {
         Handler main = new Handler(Looper.getMainLooper());
 
@@ -199,7 +121,6 @@ public class AiApi {
         MultipartBody body = new MultipartBody.Builder().setType(MultipartBody.FORM)
                 .addFormDataPart("user_image", userImageFile.getName(), userBody)
                 .addFormDataPart("outfit_image_url", outfitImageUrl)
-                // 可添加其它可选字段，如 model, preserve_color, prompt 等
                 .addFormDataPart("preserve_color", "true")
                 .build();
 
@@ -222,90 +143,85 @@ public class AiApi {
 
             @Override
             public void onResponse(Call call, Response response) {
+                handleSyncResponse(ctx, response, main, cb, "tryOnWithOutfitUrl");
+            }
+        });
+    }
+
+    // ============================================================================================
+    //  SECTION 2: 新增功能 - 异步轮询 (针对 tryon-api.com)
+    //  流程：提交图片 -> 获取 jobId -> 轮询状态 -> 获取最终 URL
+    // ============================================================================================
+
+    /**
+     * 新增：专门适配 tryon-api.com 的异步方法
+     * 参数名变更为 person_images 和 garment_images
+     */
+    public static void tryOnAsync(Context ctx, File userFile, File outfitFile, String apiKey, UrlCallback cb) {
+        Handler main = new Handler(Looper.getMainLooper());
+
+        if (userFile == null || outfitFile == null) {
+            main.post(() -> cb.onError(new IllegalArgumentException("Images cannot be null for async try-on")));
+            return;
+        }
+
+        Log.d(TAG, "tryOnAsync -> Submitting to " + ENDPOINT_SUBMIT);
+
+        // 1. 准备请求体 (注意参数名根据 tryon-api 文档调整)
+        MediaType imgType = MediaType.parse("image/png");
+        RequestBody userBody = RequestBody.create(userFile, imgType);
+        RequestBody outfitBody = RequestBody.create(outfitFile, imgType);
+
+        MultipartBody body = new MultipartBody.Builder().setType(MultipartBody.FORM)
+                .addFormDataPart("person_images", userFile.getName(), userBody)
+                .addFormDataPart("garment_images", outfitFile.getName(), outfitBody)
+                // 可选参数，根据需要开启
+                // .addFormDataPart("category", "tops")
+                .build();
+
+        Request request = new Request.Builder()
+                .url(ENDPOINT_SUBMIT)
+                .addHeader("Authorization", "Bearer " + apiKey)
+                .post(body)
+                .build();
+
+        // 2. 提交任务
+        client.newCall(request).enqueue(new okhttp3.Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                Log.e(TAG, "tryOnAsync submit failed", e);
+                main.post(() -> cb.onError(e));
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) {
                 try {
+                    String respStr = response.body() != null ? response.body().string() : "";
                     if (!response.isSuccessful()) {
-                        final IOException ex = new IOException("HTTP " + response.code() + " " + response.message());
-                        Log.w(TAG, "tryOnWithOutfitUrl response not successful: " + response.code());
-                        String bodyStr = response.body() != null ? response.body().string() : null;
-                        Log.w(TAG, "tryOnWithOutfitUrl response body snippet: " + snippet(bodyStr, 800));
-                        main.post(() -> cb.onError(ex));
+                        main.post(() -> cb.onError(new Exception("Async Submit Failed: " + response.code() + " " + snippet(respStr, 200))));
                         return;
                     }
 
-                    String ct = "";
-                    if (response.body() != null && response.body().contentType() != null) {
-                        ct = response.body().contentType().toString().toLowerCase();
-                    }
-                    Log.d(TAG, "tryOnWithOutfitUrl content-type: " + ct);
+                    // 解析 jobId
+                    // 假设返回格式: { "jobId": "xxxx-xxxx", ... } 或 { "result": "xxxx" }
+                    // 根据实际文档，通常直接在根对象里有 id 或 job_id
+                    JSONObject json = new JSONObject(respStr);
+                    String jobId = json.optString("job_id"); // 常见字段名1
+                    if (jobId.isEmpty()) jobId = json.optString("jobId"); // 常见字段名2
+                    if (jobId.isEmpty()) jobId = json.optString("id");    // 常见字段名3
 
-                    // JSON
-                    if (ct.contains("application/json") || ct.contains("text/json") || ct.contains("application/ld+json") || ct.contains("text/plain")) {
-                        String bodyStr = response.body() != null ? response.body().string() : "";
-                        if (looksLikeHtml(bodyStr)) {
-                            final Exception ex = new Exception("Unexpected HTML response from server: " + snippet(bodyStr, 800));
-                            Log.w(TAG, "tryOnWithOutfitUrl got HTML in JSON branch");
-                            main.post(() -> cb.onError(ex));
-                            return;
-                        }
-                        String found = parseUrlFromJson(bodyStr);
-                        if (found != null) {
-                            final String urlFinal = found;
-                            Log.d(TAG, "tryOnWithOutfitUrl parsed url: " + urlFinal);
-                            main.post(() -> cb.onSuccess(urlFinal));
-                            return;
-                        } else {
-                            final Exception ex = new Exception("No url field found in JSON response: " + snippet(bodyStr, 800));
-                            Log.w(TAG, "tryOnWithOutfitUrl JSON did not contain url");
-                            main.post(() -> cb.onError(ex));
-                            return;
-                        }
-                    }
-
-                    // 图片二进制
-                    if (ct.startsWith("image/") || ct.equals("") || ct.contains("octet-stream")) {
-                        File out = new File(ctx.getCacheDir(), "tryon_result_" + System.currentTimeMillis() + ".png");
-                        try (InputStream in = response.body().byteStream();
-                             FileOutputStream fos = new FileOutputStream(out)) {
-                            byte[] buf = new byte[8192];
-                            int len;
-                            while ((len = in.read(buf)) != -1) {
-                                fos.write(buf, 0, len);
-                            }
-                            fos.flush();
-                        } catch (Exception e) {
-                            final Exception ex = new Exception("Failed to save binary response: " + e.getMessage(), e);
-                            Log.e(TAG, "tryOnWithOutfitUrl save binary failed", e);
-                            main.post(() -> cb.onError(ex));
-                            return;
-                        }
-                        final String localUri = Uri.fromFile(out).toString();
-                        Log.d(TAG, "tryOnWithOutfitUrl saved binary to: " + localUri);
-                        main.post(() -> cb.onSuccess(localUri));
+                    if (jobId.isEmpty()) {
+                        main.post(() -> cb.onError(new Exception("No jobId found in response: " + snippet(respStr, 200))));
                         return;
                     }
 
-                    // 兜底
-                    String bodyStr = response.body() != null ? response.body().string() : "";
-                    if (looksLikeHtml(bodyStr)) {
-                        final Exception ex = new Exception("Unexpected response format (HTML). Body snippet: " + snippet(bodyStr, 800));
-                        Log.w(TAG, "tryOnWithOutfitUrl got HTML in fallback branch");
-                        main.post(() -> cb.onError(ex));
-                        return;
-                    }
-                    String found = parseUrlFromJson(bodyStr);
-                    if (found != null) {
-                        final String urlFinal = found;
-                        Log.d(TAG, "tryOnWithOutfitUrl parsed url in fallback: " + urlFinal);
-                        main.post(() -> cb.onSuccess(urlFinal));
-                    } else {
-                        final Exception ex = new Exception("Unexpected response format, body: " + snippet(bodyStr, 800));
-                        Log.w(TAG, "tryOnWithOutfitUrl unexpected response");
-                        main.post(() -> cb.onError(ex));
-                    }
+                    Log.d(TAG, "tryOnAsync -> Job Submitted. ID=" + jobId + ". Starting Polling...");
 
-                } catch (Exception ex) {
-                    Log.e(TAG, "tryOnWithOutfitUrl processing error", ex);
-                    main.post(() -> cb.onError(ex));
+                    // 3. 开始轮询
+                    startPolling(jobId, apiKey, main, cb);
+
+                } catch (Exception e) {
+                    main.post(() -> cb.onError(e));
                 } finally {
                     if (response.body() != null) response.close();
                 }
@@ -313,19 +229,173 @@ public class AiApi {
         });
     }
 
-    // -------------------------
-    // JSON 解析工具（沿用你原来的 parseUrlFromJson）
-    // -------------------------
     /**
-     * 尝试从 JSON 字符串中提取可能的图片 URL（尽量兼容多种后端返回格式）
-     * 支持键（优先顺序）：result_url, url, data.result, data.url, data[0].url, outputs[0].url, result[0].url
+     * 内部方法：轮询状态
      */
+    private static void startPolling(String jobId, String apiKey, Handler main, UrlCallback cb) {
+        new Thread(() -> {
+            int retryCount = 0;
+            int maxRetries = 40; // 约 80秒超时
+            boolean isFinished = false;
+
+            while (retryCount < maxRetries && !isFinished) {
+                try {
+                    Thread.sleep(2000); // 间隔 2秒
+                    retryCount++;
+
+                    String statusUrl = ENDPOINT_STATUS + jobId;
+                    Request request = new Request.Builder()
+                            .url(statusUrl)
+                            .addHeader("Authorization", "Bearer " + apiKey)
+                            .get()
+                            .build();
+
+                    try (Response response = client.newCall(request).execute()) {
+                        if (!response.isSuccessful()) {
+                            // 网络错误暂不中断，可能是波动
+                            Log.w(TAG, "Polling network error: " + response.code());
+                            continue;
+                        }
+
+                        String respStr = response.body() != null ? response.body().string() : "{}";
+                        JSONObject json = new JSONObject(respStr);
+                        String status = json.optString("status").toLowerCase();
+
+                        Log.d(TAG, "Polling job " + jobId + " -> status: " + status);
+
+                        if ("completed".equals(status) || "success".equals(status)) {
+                            isFinished = true;
+                            // 尝试提取 URL
+                            String finalUrl = null;
+                            if (json.has("result")) {
+                                Object res = json.get("result");
+                                if (res instanceof JSONObject) {
+                                    finalUrl = ((JSONObject) res).optString("renderedImageUrl");
+                                    if (finalUrl.isEmpty()) finalUrl = ((JSONObject) res).optString("url");
+                                } else if (res instanceof String) {
+                                    finalUrl = (String) res; // 有时 result 直接就是 url
+                                }
+                            }
+                            if (finalUrl == null || finalUrl.isEmpty()) {
+                                finalUrl = json.optString("output_url");
+                            }
+
+                            if (finalUrl != null && !finalUrl.isEmpty()) {
+                                final String urlResult = finalUrl;
+                                main.post(() -> cb.onSuccess(urlResult));
+                            } else {
+                                main.post(() -> cb.onError(new Exception("Job completed but no URL found.")));
+                            }
+                        } else if ("failed".equals(status) || "error".equals(status)) {
+                            isFinished = true;
+                            String msg = json.optString("message", "Unknown error");
+                            main.post(() -> cb.onError(new Exception("AI Job Failed: " + msg)));
+                        }
+                        // else: "processing", "pending", "queued" -> continue loop
+                    }
+
+                } catch (Exception e) {
+                    Log.e(TAG, "Polling exception", e);
+                    // 严重错误退出
+                    if (retryCount > 5 && e instanceof InterruptedException) {
+                        isFinished = true;
+                        main.post(() -> cb.onError(e));
+                    }
+                }
+            }
+
+            if (!isFinished) {
+                main.post(() -> cb.onError(new Exception("Try-on operation timed out.")));
+            }
+        }).start();
+    }
+
+    // ============================================================================================
+    //  SECTION 3: 辅助与工具方法 (保持原有逻辑)
+    // ============================================================================================
+
+    /**
+     * 抽取了原来在 onResponse 里重复的逻辑，用于处理同步请求
+     */
+    private static void handleSyncResponse(Context ctx, Response response, Handler main, UrlCallback cb, String methodName) {
+        try {
+            if (!response.isSuccessful()) {
+                final IOException ex = new IOException("HTTP " + response.code() + " " + response.message());
+                Log.w(TAG, methodName + " response not successful: " + response.code());
+                main.post(() -> cb.onError(ex));
+                return;
+            }
+
+            String ct = "";
+            if (response.body() != null && response.body().contentType() != null) {
+                ct = response.body().contentType().toString().toLowerCase();
+            }
+            Log.d(TAG, methodName + " content-type: " + ct);
+
+            // JSON 情形
+            if (ct.contains("application/json") || ct.contains("text/json") || ct.contains("application/ld+json") || ct.contains("text/plain")) {
+                String bodyStr = response.body() != null ? response.body().string() : "";
+                if (looksLikeHtml(bodyStr)) {
+                    final Exception ex = new Exception("Unexpected HTML response: " + snippet(bodyStr, 800));
+                    main.post(() -> cb.onError(ex));
+                    return;
+                }
+
+                String found = parseUrlFromJson(bodyStr);
+                if (found != null) {
+                    final String urlFinal = found;
+                    main.post(() -> cb.onSuccess(urlFinal));
+                } else {
+                    final Exception ex = new Exception("No url field found in JSON: " + snippet(bodyStr, 800));
+                    main.post(() -> cb.onError(ex));
+                }
+                return;
+            }
+
+            // 图片二进制情形
+            if (ct.startsWith("image/") || ct.equals("") || ct.contains("octet-stream")) {
+                File out = new File(ctx.getCacheDir(), "tryon_result_" + System.currentTimeMillis() + ".png");
+                try (InputStream in = response.body().byteStream();
+                     FileOutputStream fos = new FileOutputStream(out)) {
+                    byte[] buf = new byte[8192];
+                    int len;
+                    while ((len = in.read(buf)) != -1) {
+                        fos.write(buf, 0, len);
+                    }
+                    fos.flush();
+                }
+                final String localUri = Uri.fromFile(out).toString();
+                main.post(() -> cb.onSuccess(localUri));
+                return;
+            }
+
+            // 兜底
+            String bodyStr = response.body() != null ? response.body().string() : "";
+            if (looksLikeHtml(bodyStr)) {
+                main.post(() -> cb.onError(new Exception("Unexpected HTML response in fallback")));
+                return;
+            }
+            String found = parseUrlFromJson(bodyStr);
+            if (found != null) {
+                main.post(() -> cb.onSuccess(found));
+            } else {
+                main.post(() -> cb.onError(new Exception("Unexpected response format: " + snippet(bodyStr, 800))));
+            }
+
+        } catch (Exception ex) {
+            Log.e(TAG, methodName + " processing error", ex);
+            main.post(() -> cb.onError(ex));
+        } finally {
+            if (response.body() != null) response.close();
+        }
+    }
+
+    // 保持原来的解析逻辑不变
     private static String parseUrlFromJson(String jsonStr) {
         if (jsonStr == null || jsonStr.trim().isEmpty()) return null;
         try {
             JSONObject jo = new JSONObject(jsonStr);
 
-            // 直接常见字段
             String[] directKeys = new String[]{"result_url", "result", "url", "image_url", "output_url", "output"};
             for (String k : directKeys) {
                 if (jo.has(k)) {
@@ -337,7 +407,6 @@ public class AiApi {
                 }
             }
 
-            // data -> object or array
             if (jo.has("data")) {
                 Object data = jo.get("data");
                 if (data instanceof JSONObject) {
@@ -370,7 +439,6 @@ public class AiApi {
                 }
             }
 
-            // outputs -> array
             if (jo.has("outputs")) {
                 Object outs = jo.get("outputs");
                 if (outs instanceof JSONArray && ((JSONArray) outs).length() > 0) {
@@ -385,7 +453,6 @@ public class AiApi {
                 }
             }
 
-            // 有时返回嵌套 result 字段
             if (jo.has("result") && jo.opt("result") instanceof JSONObject) {
                 JSONObject rjo = jo.optJSONObject("result");
                 if (rjo != null && rjo.has("url")) {
@@ -395,7 +462,6 @@ public class AiApi {
             }
 
         } catch (JSONException e) {
-            // ignore and return null
             Log.w(TAG, "parseUrlFromJson JSONException: " + e.getMessage());
         }
         return null;

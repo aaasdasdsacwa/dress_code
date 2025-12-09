@@ -235,9 +235,13 @@ public class TryOnFragment extends Fragment {
      */
     // helper: 将任意原始 URL 转为 ASCII-safe 的 URL 字符串
     private String encodeUrl(String rawUrl) {
+        if (rawUrl == null) return null;
         try {
-            java.net.URL u = new java.net.URL(rawUrl);
-            // 使用 URL 的各部分重建 URI，会自动把 path/query 中的非 ASCII 编码为 %HH
+            // 1. 先解码，把 %20 还原成空格，把 %E4 还原成中文等
+            String decoded = java.net.URLDecoder.decode(rawUrl, "UTF-8");
+
+            // 2. 再利用 URI 进行标准编码（自动处理空格、中文等）
+            java.net.URL u = new java.net.URL(decoded);
             java.net.URI uri = new java.net.URI(
                     u.getProtocol(),
                     u.getUserInfo(),
@@ -248,7 +252,8 @@ public class TryOnFragment extends Fragment {
                     null);
             return uri.toASCIIString();
         } catch (Exception e) {
-            // 回退：尝试简单地替换空格，或直接返回原始字符串（但可能失败）
+            // 如果解析失败，回退到简单的空格替换
+            Log.w(TAG, "encodeUrl failed, fallback to replace", e);
             try {
                 return rawUrl.replace(" ", "%20");
             } catch (Exception ignored) {}
