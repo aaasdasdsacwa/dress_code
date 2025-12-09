@@ -218,11 +218,19 @@ public class TryOnFragment extends Fragment {
             try {
                 Bitmap bmp = MediaStore.Images.Media.getBitmap(requireContext().getContentResolver(), uri);
                 ivUser.setImageBitmap(bmp);
-                File f = new File(requireContext().getCacheDir(), "picked_user.png");
+
+                // 改名后缀为 .jpg
+                File f = new File(requireContext().getCacheDir(), "picked_user.jpg");
                 try (FileOutputStream out = new FileOutputStream(f)) {
-                    bmp.compress(Bitmap.CompressFormat.PNG, 90, out);
+                    // 【重点修改】把 PNG 改为 JPEG，质量设为 80
+                    // 这样几 MB 的图片会变成 几百 KB，瞬间传完
+                    bmp.compress(Bitmap.CompressFormat.JPEG, 80, out);
                 }
                 pickedFile = f;
+
+                // 打印一下文件大小，确认是否变小了
+                Log.d(TAG, "User image size: " + (f.length() / 1024) + " KB");
+
             } catch (Exception e) {
                 Log.e(TAG, "select image failed", e);
                 Toast.makeText(requireContext(), "选图失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -299,11 +307,24 @@ public class TryOnFragment extends Fragment {
 
     // 更稳健的下载实现：对 URL 做编码并打印 DNS；使用 timeouts
     private File downloadToCache(Context ctx, String rawUrl) {
-        String url = encodeUrl(rawUrl);
+        // 【新增步骤 1】强行升级图片分辨率
+        // Pollinations 的 URL 通常包含 width=400&height=600
+        // 我们用正则将其替换为更大的数值 (768x1024)，以满足 tryon-api 要求的 512px 限制
+        String highResUrl = rawUrl;
+        if (rawUrl != null) {
+            highResUrl = rawUrl.replaceAll("width=\\d+", "width=768")
+                    .replaceAll("height=\\d+", "height=1024");
+            android.util.Log.d("TryOnFragment", "Upgrade resolution url: " + highResUrl);
+        }
+
+        // 【步骤 2】对升级后的 URL 进行编码
+        String url = encodeUrl(highResUrl);
+
+        // 构建 OkHttp，超时时间建议设置长一点
         okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
-                .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .callTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
                 .build();
 
         okhttp3.Request req;
@@ -319,14 +340,20 @@ public class TryOnFragment extends Fragment {
                 android.util.Log.w("TryOnFragment", "downloadToCache response not successful: " + resp.code() + " for url: " + url);
                 return null;
             }
+            if (resp.body() == null) return null;
+
             java.io.InputStream in = resp.body().byteStream();
+            // 保存为 png
             File f = new File(ctx.getCacheDir(), "outfit_download.png");
             try (java.io.OutputStream out = new java.io.FileOutputStream(f)) {
                 byte[] buf = new byte[8192];
                 int len;
                 while ((len = in.read(buf)) != -1) out.write(buf, 0, len);
             }
+
+            android.util.Log.d("TryOnFragment", "Outfit downloaded size: " + (f.length() / 1024) + " KB");
             return f;
+
         } catch (java.net.UnknownHostException uhe) {
             android.util.Log.w("TryOnFragment", "DNS lookup failed for url: " + url + " : " + uhe.getMessage());
             return null;

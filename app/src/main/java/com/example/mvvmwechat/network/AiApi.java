@@ -36,9 +36,9 @@ public class AiApi {
 
     // 基础 Client 配置
     private static final OkHttpClient client = new OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
             .build();
 
     // 默认 endpoint（保留你原来的地址）
@@ -235,7 +235,7 @@ public class AiApi {
     private static void startPolling(String jobId, String apiKey, Handler main, UrlCallback cb) {
         new Thread(() -> {
             int retryCount = 0;
-            int maxRetries = 40; // 约 80秒超时
+            int maxRetries = 40; // 约 80秒
             boolean isFinished = false;
 
             while (retryCount < maxRetries && !isFinished) {
@@ -252,51 +252,73 @@ public class AiApi {
 
                     try (Response response = client.newCall(request).execute()) {
                         if (!response.isSuccessful()) {
-                            // 网络错误暂不中断，可能是波动
                             Log.w(TAG, "Polling network error: " + response.code());
                             continue;
                         }
 
                         String respStr = response.body() != null ? response.body().string() : "{}";
+
+                        // 【关键修改 1】打印服务器返回的完整 JSON，排查问题根源
+                        Log.d(TAG, "Polling Response (" + jobId + "): " + respStr);
+
                         JSONObject json = new JSONObject(respStr);
                         String status = json.optString("status").toLowerCase();
 
-                        Log.d(TAG, "Polling job " + jobId + " -> status: " + status);
-
                         if ("completed".equals(status) || "success".equals(status)) {
                             isFinished = true;
-                            // 尝试提取 URL
                             String finalUrl = null;
-                            if (json.has("result")) {
+
+                            // 【关键修改 2】增强 URL 提取逻辑，支持多种格式
+
+                            // 1. 尝试直接取 output_url
+                            if (json.has("output_url")) {
+                                finalUrl = json.optString("output_url");
+                            }
+                            // 2. 尝试取 result (可能是字符串或对象)
+                            else if (json.has("result")) {
                                 Object res = json.get("result");
                                 if (res instanceof JSONObject) {
                                     finalUrl = ((JSONObject) res).optString("renderedImageUrl");
                                     if (finalUrl.isEmpty()) finalUrl = ((JSONObject) res).optString("url");
                                 } else if (res instanceof String) {
-                                    finalUrl = (String) res; // 有时 result 直接就是 url
+                                    finalUrl = (String) res;
                                 }
                             }
-                            if (finalUrl == null || finalUrl.isEmpty()) {
-                                finalUrl = json.optString("output_url");
+                            // 3. 尝试取 outputs 数组 (tryon-api 常用格式)
+                            else if (json.has("outputs")) {
+                                JSONArray outs = json.optJSONArray("outputs");
+                                if (outs != null && outs.length() > 0) {
+                                    Object first = outs.get(0);
+                                    if (first instanceof String) {
+                                        finalUrl = (String) first;
+                                    } else if (first instanceof JSONObject) {
+                                        finalUrl = ((JSONObject) first).optString("url");
+                                    }
+                                }
                             }
 
-                            if (finalUrl != null && !finalUrl.isEmpty()) {
+                            if (finalUrl != null && !finalUrl.isEmpty() && finalUrl.startsWith("http")) {
                                 final String urlResult = finalUrl;
+                                Log.d(TAG, "Found Final URL: " + urlResult);
                                 main.post(() -> cb.onSuccess(urlResult));
                             } else {
-                                main.post(() -> cb.onError(new Exception("Job completed but no URL found.")));
+                                Log.e(TAG, "Job completed but JSON parse failed. Body: " + respStr);
+                                main.post(() -> cb.onError(new Exception("Job completed but no URL found in response.")));
                             }
+
                         } else if ("failed".equals(status) || "error".equals(status)) {
                             isFinished = true;
-                            String msg = json.optString("message", "Unknown error");
+                            // 提取更详细的错误信息
+                            String msg = json.optString("message", json.optString("error", "Unknown error"));
+                            // 如果是因为内容安全（NSFW）被拦截，通常会有提示
+                            Log.e(TAG, "Job Failed. Body: " + respStr);
                             main.post(() -> cb.onError(new Exception("AI Job Failed: " + msg)));
                         }
-                        // else: "processing", "pending", "queued" -> continue loop
+                        // else: processing... continue
                     }
 
                 } catch (Exception e) {
                     Log.e(TAG, "Polling exception", e);
-                    // 严重错误退出
                     if (retryCount > 5 && e instanceof InterruptedException) {
                         isFinished = true;
                         main.post(() -> cb.onError(e));
