@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/menu_outfits"
+        android:title="穿搭"
+        android:icon="@android:drawable/ic_menu_gallery"/>
+    <item
+        android:id="@+id/menu_tryon"
+        android:title="智能换装"
+        android:icon="@android:drawable/ic_menu_camera"/>
+    <item
+        android:id="@+id/menu_backend"
+        android:title="后台"
+        android:icon="@android:drawable/ic_menu_manage"/>
+    <item
+        android:id="@+id/menu_collection"
+        android:title="收藏"
+        android:icon="@android:drawable/ic_menu_save"/>
+    <item
+        android:id="@+id/menu_settings"
+        android:title="设置"
+        android:icon="@android:drawable/ic_menu_preferences"/>
+</menu>

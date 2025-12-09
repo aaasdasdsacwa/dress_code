@@ -1,0 +1,33 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.mvvmwechat">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <application
+        android:allowBackup="true"
+        android:label="MVVM WeChat"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
+        android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+        <!-- 注册新的 WeatherActivity -->
+        <activity android:name=".ui.WeatherActivity"
+            android:exported="false"
+            android:label="天气信息"/>
+        <!-- Launcher activity 必须 exported=true 才能被系统 launcher 启动 -->
+        <activity
+            android:name=".LoginActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <!-- 无 intent-filter 的 activity 可以不写 exported（建议写明） -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
+    </application>
+</manifest>

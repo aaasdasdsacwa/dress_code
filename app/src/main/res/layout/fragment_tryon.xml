@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:fillViewport="true"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:padding="12dp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:id="@+id/tv_fav_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="已收藏的穿搭"
+            android:textSize="16sp"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tv_no_favorites"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="你还没有收藏任何穿搭，先去收藏一件吧"
+            android:visibility="gone"
+            android:paddingBottom="8dp" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_favorites"
+            android:layout_width="match_parent"
+            android:layout_height="120dp"
+            android:visibility="gone"
+            android:orientation="horizontal"/>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="8dp" />
+
+        <ImageView
+            android:id="@+id/iv_user"
+            android:layout_width="match_parent"
+            android:layout_height="300dp"
+            android:scaleType="centerCrop"
+            android:background="#EEE" />
+
+        <Button
+            android:id="@+id/btn_pick"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="选择/拍照 用户图片"
+            android:layout_marginTop="8dp"/>
+
+        <Button
+            android:id="@+id/btn_tryon"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="开始智能换装"
+            android:layout_marginTop="8dp"/>
+
+        <ProgressBar
+            android:id="@+id/pb_progress"
+            style="?android:attr/progressBarStyleLarge"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:visibility="gone"
+            android:layout_marginTop="12dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="换装结果"
+            android:paddingTop="12dp" />
+
+        <ImageView
+            android:id="@+id/iv_result"
+            android:layout_width="match_parent"
+            android:layout_height="300dp"
+            android:scaleType="centerCrop"
+            android:background="#EEE"
+            android:layout_marginBottom="24dp"/>
+
+    </LinearLayout>
+
+</ScrollView>

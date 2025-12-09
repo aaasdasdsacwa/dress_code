@@ -1,0 +1,59 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'com.example.mvvmwechat'   // <-- 在这里指定 namespace（必需）
+    compileSdkVersion 34
+    buildFeatures {
+        buildConfig true   // ← 必须启用 BuildConfig，否则无法添加 buildConfigField
+    }
+    defaultConfig {
+        applicationId "com.example.mvvmwechat"
+        minSdkVersion 21
+        targetSdkVersion 34
+        versionCode 1
+        versionName "1.0"
+        buildConfigField "String", "AI_BASE", "\"https://tryon-api.com\""
+        buildConfigField "String", "AI_KEY", "\"ta_ffd39b05f2a54a9497100a1173ccad59\""
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+dependencies {
+    // OkHttp3
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    //（可选）OkHttp 日志工具
+    implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
+    // Glide 图片加载库
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
+    annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
+    implementation 'com.squareup.retrofit2:retrofit:2.9.0'
+    implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
+    // 其它已有依赖保持不变
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.9.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+
+    // Lifecycle
+    implementation 'androidx.lifecycle:lifecycle-viewmodel:2.6.1'
+    implementation 'androidx.lifecycle:lifecycle-livedata:2.6.1'
+
+    // Room
+    implementation 'androidx.room:room-runtime:2.6.1'
+    annotationProcessor 'androidx.room:room-compiler:2.6.1'
+
+    // Fragment
+    implementation 'androidx.fragment:fragment:1.6.0'
+
+    // Test
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}

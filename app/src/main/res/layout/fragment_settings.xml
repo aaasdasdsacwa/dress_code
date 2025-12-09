@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- 原有的性别设置 -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="显示的性别："
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <RadioGroup
+        android:id="@+id/rg_gender"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <RadioButton
+            android:id="@+id/rb_all"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="全部" />
+
+        <RadioButton
+            android:id="@+id/rb_male"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="男" />
+
+        <RadioButton
+            android:id="@+id/rb_female"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="女" />
+    </RadioGroup>
+
+    <!-- 分割线 -->
+    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#CCCCCC" android:layout_marginVertical="16dp"/>
+
+    <!-- 新增：默认展示顺序设置 -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="默认展示顺序："
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <RadioGroup
+        android:id="@+id/rg_sort_mode"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <RadioButton
+            android:id="@+id/rb_sort_style"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="按风格" />
+
+        <RadioButton
+            android:id="@+id/rb_sort_season"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="按季节" />
+
+        <RadioButton
+            android:id="@+id/rb_sort_weather"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="按天气" />
+    </RadioGroup>
+
+    <!-- 原有的默认风格设置 (如果还需要的话可以保留，如果不需要可以删掉) -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="首选风格偏好："
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <Spinner
+        android:id="@+id/sp_default_style"
+        android:layout_width="match_parent"
+        android:layout_height="48dp" />
+
+    <Button
+        android:id="@+id/btn_save_settings"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="32dp"
+        android:text="保存设置" />
+
+</LinearLayout>
