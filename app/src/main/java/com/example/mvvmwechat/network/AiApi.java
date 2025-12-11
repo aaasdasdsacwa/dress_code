@@ -176,7 +176,7 @@ public class AiApi {
                 .addFormDataPart("person_images", userFile.getName(), userBody)
                 .addFormDataPart("garment_images", outfitFile.getName(), outfitBody)
                 // 可选参数，根据需要开启
-                // .addFormDataPart("category", "tops")
+                .addFormDataPart("category", "one-pieces")
                 .build();
 
         Request request = new Request.Builder()
@@ -257,8 +257,6 @@ public class AiApi {
                         }
 
                         String respStr = response.body() != null ? response.body().string() : "{}";
-
-                        // 【关键修改 1】打印服务器返回的完整 JSON，排查问题根源
                         Log.d(TAG, "Polling Response (" + jobId + "): " + respStr);
 
                         JSONObject json = new JSONObject(respStr);
@@ -268,23 +266,29 @@ public class AiApi {
                             isFinished = true;
                             String finalUrl = null;
 
-                            // 【关键修改 2】增强 URL 提取逻辑，支持多种格式
+                            // ================== 修改开始 ==================
+                            // 逻辑必须是用 else if 连接的单链条，防止被覆盖
 
-                            // 1. 尝试直接取 output_url
-                            if (json.has("output_url")) {
+                            // 1. 优先匹配日志中出现的 "imageUrl"
+                            if (json.has("imageUrl")) {
+                                finalUrl = json.optString("imageUrl");
+                            }
+                            // 2. 尝试直接取 output_url
+                            else if (json.has("output_url")) { // 【这里加上了 else】
                                 finalUrl = json.optString("output_url");
                             }
-                            // 2. 尝试取 result (可能是字符串或对象)
+                            // 3. 尝试取 result (可能是字符串或对象)
                             else if (json.has("result")) {
                                 Object res = json.get("result");
                                 if (res instanceof JSONObject) {
-                                    finalUrl = ((JSONObject) res).optString("renderedImageUrl");
-                                    if (finalUrl.isEmpty()) finalUrl = ((JSONObject) res).optString("url");
+                                    JSONObject resObj = (JSONObject) res;
+                                    finalUrl = resObj.optString("renderedImageUrl");
+                                    if (finalUrl.isEmpty()) finalUrl = resObj.optString("url");
                                 } else if (res instanceof String) {
                                     finalUrl = (String) res;
                                 }
                             }
-                            // 3. 尝试取 outputs 数组 (tryon-api 常用格式)
+                            // 4. 尝试取 outputs 数组
                             else if (json.has("outputs")) {
                                 JSONArray outs = json.optJSONArray("outputs");
                                 if (outs != null && outs.length() > 0) {
@@ -296,6 +300,7 @@ public class AiApi {
                                     }
                                 }
                             }
+                            // ================== 修改结束 ==================
 
                             if (finalUrl != null && !finalUrl.isEmpty() && finalUrl.startsWith("http")) {
                                 final String urlResult = finalUrl;
@@ -308,15 +313,11 @@ public class AiApi {
 
                         } else if ("failed".equals(status) || "error".equals(status)) {
                             isFinished = true;
-                            // 提取更详细的错误信息
                             String msg = json.optString("message", json.optString("error", "Unknown error"));
-                            // 如果是因为内容安全（NSFW）被拦截，通常会有提示
                             Log.e(TAG, "Job Failed. Body: " + respStr);
                             main.post(() -> cb.onError(new Exception("AI Job Failed: " + msg)));
                         }
-                        // else: processing... continue
                     }
-
                 } catch (Exception e) {
                     Log.e(TAG, "Polling exception", e);
                     if (retryCount > 5 && e instanceof InterruptedException) {
