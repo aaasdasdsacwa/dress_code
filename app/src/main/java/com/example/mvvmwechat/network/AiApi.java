@@ -235,12 +235,13 @@ public class AiApi {
     private static void startPolling(String jobId, String apiKey, Handler main, UrlCallback cb) {
         new Thread(() -> {
             int retryCount = 0;
-            int maxRetries = 40; // 约 80秒
+            int maxRetries = 100; // 约 80秒
+            int sleepTime = 3000;
             boolean isFinished = false;
 
             while (retryCount < maxRetries && !isFinished) {
                 try {
-                    Thread.sleep(2000); // 间隔 2秒
+                    Thread.sleep(sleepTime); // 间隔 2秒
                     retryCount++;
 
                     String statusUrl = ENDPOINT_STATUS + jobId;
